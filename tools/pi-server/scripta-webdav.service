@@ -1,0 +1,29 @@
+# systemd unit for the Scripta WebDAV sync server (rclone).
+# setup.sh installs this as /etc/systemd/system/scripta-webdav.service and fills in __USER__ and __RCLONE__.
+# Settings and the password live in /etc/scripta-webdav.env (root-only, readable by systemd), so the
+# password never appears on the command line or in `ps`.
+
+[Unit]
+Description=Scripta WebDAV sync server (rclone)
+Documentation=https://github.com/kfj314/scripta
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+EnvironmentFile=/etc/scripta-webdav.env
+# RCLONE_USER and RCLONE_PASS from the env file are picked up by rclone as --user / --pass.
+ExecStart=__RCLONE__ serve webdav "${SCRIPTA_FOLDER}" --addr ":${SCRIPTA_PORT}" --dir-cache-time 1s --log-level INFO
+Restart=on-failure
+RestartSec=5
+
+# hardening: the server only needs to read and write the vault folder
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target
