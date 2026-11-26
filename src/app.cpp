@@ -444,6 +444,13 @@ static void settingsFrame() {
     }, ui::I_GEAR));
     items.push_back(ui::toggleItem("Status bar while writing", S.showStatus, [](bool v) { S.showStatus = v; settingsSave(); }, ui::I_INFO));
     items.push_back(ui::toggleItem("Typewriter scrolling", S.typewriter, [](bool v) { S.typewriter = v; settingsSave(); }, ui::I_TEXT));
+    static const char *kFront[] = {"show", "hide, open below", "hide + lock"};
+    items.push_back(ui::choiceItem("YAML properties (.md)", kFront[min<int>(S.hideFront, 2)], [](int d) {
+      S.hideFront = ((int)S.hideFront + d + 3) % 3;
+      settingsSave();
+      if (doc.open()) doc.setCursor(doc.cursor());  // step out of front matter being hidden
+      doc.relayout();
+    }, ui::I_FILE));
     items.push_back(ui::section("Writing"));
     items.push_back(ui::choiceItem("Autosave after", String(S.autosaveSec) + " s", [](int d) {
       S.autosaveSec = constrain((int)S.autosaveSec + d * 5, 5, 120);

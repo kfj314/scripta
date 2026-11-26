@@ -46,6 +46,7 @@ struct Settings {
   char ntp[32];
   // appended later: older saved settings are a prefix of this struct
   KbSaved kbs[KB_SLOTS];  // paired keyboards, most recently used first
+  uint8_t hideFront;      // YAML front matter in .md files: 0 show, 1 hide until the cursor enters, 2 lock (only --- shows)
 };
 
 extern Settings S;

@@ -5,7 +5,7 @@
 #include "fonts.h"
 #include "settings.h"
 
-enum Block : uint8_t { B_BODY, B_H1, B_H2, B_H3, B_BULLET, B_NUM, B_TODO, B_HR, B_BLANK };
+enum Block : uint8_t { B_BODY, B_H1, B_H2, B_H3, B_BULLET, B_NUM, B_TODO, B_HR, B_BLANK, B_FRONT };  // B_FRONT = YAML front matter line
 
 // A text document plus everything needed to edit it live: paragraph index,
 // wrapped layout, markdown styling, undo history, cursor and scrolling.
@@ -92,6 +92,8 @@ class Doc {
   int openWords_ = 0;
   int wordsCache_ = 0;
   bool wordsDirty_ = true;
+  uint32_t frontEnd_ = 0;  // end of the closing front-matter delimiter line, 0 = none
+  bool frontOpen_ = false; // cursor is inside the front matter
 
   // layout
   std::vector<Para> paras_;
@@ -117,6 +119,11 @@ class Doc {
   const char *p(const Para &pa) const { return text_.data() + pa.start; }
 
   void splitAll();
+  void findFront();
+  // S.hideFront: 0 = show, 1 = hide until the cursor enters, 2 = locked (only the opening --- shows)
+  bool frontLocked() const { return S.hideFront >= 2 && frontEnd_; }
+  bool frontHidden() const { return S.hideFront == 1 && !frontOpen_; }
+  void clampFront();
   int paraAt(uint32_t off) const;
   void classify(Para &pa) const;
   void replace(uint32_t pos, uint32_t del, const std::string &ins, uint32_t curAfter, bool coalesce = false);

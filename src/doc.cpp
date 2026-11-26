@@ -49,6 +49,7 @@ bool Doc::load(const String &path, DocType type) {
   undoBytes_ = 0;
   lastActive_ = -1;
   splitAll();
+  if (S.hideFront) clampFront();
   openWords_ = words();
   return true;
 }
@@ -91,7 +92,28 @@ void Doc::setType(DocType t) {
   relayout();
 }
 
+// YAML front matter: the file opens with a "---" line and a later line of
+// "---" or "..." closes it. Only markdown files get this treatment.
+void Doc::findFront() {
+  frontEnd_ = 0;
+  if (!markdown_) return;
+  uint32_t s = text_.compare(0, 3, "\xEF\xBB\xBF") == 0 ? 3 : 0;  // optional UTF-8 BOM
+  if (text_.compare(s, 4, "---\n") != 0) return;
+  s += 4;
+  uint32_t lim = min<uint32_t>(text_.size(), 16384);
+  while (s < lim) {
+    size_t e = text_.find('\n', s);
+    if (e == std::string::npos) e = text_.size();
+    if (e - s == 3 && (text_.compare(s, 3, "---") == 0 || text_.compare(s, 3, "...") == 0)) {
+      frontEnd_ = e;
+      return;
+    }
+    s = e + 1;
+  }
+}
+
 void Doc::splitAll() {
+  findFront();
   paras_.clear();
   uint32_t s = 0;
   for (uint32_t k = 0; k <= text_.size(); k++) {
@@ -123,6 +145,7 @@ void Doc::classify(Para &pa) const {
   pa.depth = 0;
   pa.prefix = 0;
   pa.checked = 0;
+  if (frontEnd_ && pa.start < frontEnd_) { pa.kind = B_FRONT; return; }
   const char *s = text_.data() + pa.start;
   int n = pa.len;
   if (n == 0) { pa.kind = B_BLANK; return; }
@@ -177,6 +200,8 @@ void Doc::applyRaw(uint32_t pos, uint32_t del, const std::string &ins) {
   uint32_t rs = paras_[a].start;
   uint32_t oldEnd = paras_[b].start + paras_[b].len;
   text_.replace(pos, del, ins);
+  uint32_t oldFront = frontEnd_;
+  findFront();
   int32_t delta = (int32_t)ins.size() - (int32_t)del;
   uint32_t newEnd = oldEnd + delta;
   std::vector<Para> np;
@@ -201,6 +226,14 @@ void Doc::applyRaw(uint32_t pos, uint32_t del, const std::string &ins) {
     paras_[j].h = -1;
     if (paras_[j].kind != B_BLANK) break;
   }
+  // opening or closing the front matter reclassifies every line it covers
+  if (frontEnd_ != oldFront) {
+    uint32_t lim = max<uint32_t>(frontEnd_, oldFront + max<int32_t>(delta, 0)) + 1;
+    for (auto &q : paras_) {
+      if (q.start > lim) break;
+      q.h = -1;
+    }
+  }
   if (lastActive_ > b) lastActive_ += (int)np.size() - oldCount;
   else if (lastActive_ >= a) lastActive_ = -1;
   yDirty_ = true;
@@ -212,10 +245,19 @@ void Doc::beginGroup() {
 }
 void Doc::endGroup() { inGroup_ = false; }
 
-void Doc::replace(uint32_t pos, uint32_t del, const std::string &ins, uint32_t curAfter, bool coalesce) {
+void Doc::replace(uint32_t pos, uint32_t del, const std::string &ins0, uint32_t curAfter, bool coalesce) {
   if (pos > text_.size()) pos = text_.size();
   if (del > text_.size() - pos) del = text_.size() - pos;
-  if (del == 0 && ins.empty()) return;
+  if (del == 0 && ins0.empty()) return;
+  std::string ins = ins0;
+  // locked front matter: nothing inside it (or its closing line break) can change
+  if (frontLocked() && pos <= frontEnd_) {
+    if (del > 0 || pos < frontEnd_) return;
+    // typing right after the closing --- of a file with no body: start a new line
+    ins.insert(0, 1, '\n');
+    curAfter++;
+    coalesce = false;
+  }
   uint32_t now = millis();
   Op op;
   op.pos = pos;
@@ -574,7 +616,15 @@ void Doc::toggleItalic() { toggleWrap("_"); }
 
 void Doc::setCursor(uint32_t pos) {
   cursor_ = pos > text_.size() ? text_.size() : pos;
+  // a restored position inside hidden front matter would reveal it; start below it instead
+  if (S.hideFront) clampFront();
   wantX_ = -1;
+}
+
+// Put the cursor on the first line after the front matter (or at the very end
+// when the file is nothing but front matter).
+void Doc::clampFront() {
+  if (frontEnd_ && cursor_ <= frontEnd_) cursor_ = frontEnd_ < text_.size() ? frontEnd_ + 1 : frontEnd_;
 }
 
 void Doc::normalizeCursor(int dir) {
@@ -712,7 +762,8 @@ void Doc::move(Move m) {
 fonts::Ref Doc::refFor(Block b) const {
   const DocFormat &f = fmt();
   int lvl = f.size;
-  if (b == B_H1) lvl = min(5, lvl + 2);
+  if (b == B_FRONT) lvl = max(0, lvl - 1);
+  else if (b == B_H1) lvl = min(5, lvl + 2);
   else if (b == B_H2) lvl = min(5, lvl + 1);
   return {fonts::faceIndex(f.face), lvl};
 }
@@ -756,7 +807,7 @@ void Doc::prepStyles(int i) {
   if (!active && hasPrefixMarker(pa.kind)) {
     for (int k = 0; k < pre && k < n; k++) sty_[k] = ST_HID;
   }
-  if (!markdown_ || pa.kind == B_HR) return;
+  if (!markdown_ || pa.kind == B_HR || pa.kind == B_FRONT) return;
   // Obsidian-style live preview: a **bold** or *italic* span shows its markers
   // only while the cursor is inside it; everywhere else the markers are hidden
   // and the text is simply bold or italic.
@@ -847,6 +898,11 @@ void Doc::layoutPara(int i) {
     pa.h = (fmt().tight && !pa.laidActive) ? 0 : lineH(B_BODY);
     return;
   }
+  // locked: only the opening --- stays, as a sign the file has properties
+  if (k == B_FRONT && (frontHidden() || (S.hideFront >= 2 && i > 0))) {
+    pa.h = 0;
+    return;
+  }
   int j = i - 1;
   while (j >= 0 && paras_[j].kind == B_BLANK) j--;
   pa.suppressIndent = (j < 0) || paras_[j].kind != B_BODY;
@@ -917,6 +973,7 @@ void Doc::rebuildY() {
 
 void Doc::ensureLayout() {
   if (paras_.empty()) splitAll();
+  if (frontLocked()) clampFront();  // locked front matter is never entered
   int act = paraAt(cursor_);
   if (lastActive_ != act) {
     if (lastActive_ >= 0 && lastActive_ < (int)paras_.size()) paras_[lastActive_].h = -1;
@@ -924,6 +981,15 @@ void Doc::ensureLayout() {
   }
   // markers inside the active paragraph depend on where the cursor is
   if (act == lastActive_ && cursor_ != lastCursor_) paras_[act].h = -1;
+  // hidden front matter expands while the cursor is in it
+  bool fo = frontEnd_ && cursor_ <= frontEnd_;
+  if (fo != frontOpen_) {
+    frontOpen_ = fo;
+    for (auto &q : paras_) {
+      if (q.kind != B_FRONT) break;
+      q.h = -1;
+    }
+  }
   lastCursor_ = cursor_;
   act_ = act;
   lastActive_ = act;

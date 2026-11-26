@@ -30,6 +30,9 @@ plugging in USB. Pins and the ST7305 driver come from Waveshare's own Arduino de
 Live-styled markdown: `#`, `-`, `1.`, `**bold**` and `_italic_` markers are hidden except on the line the cursor is on.
 Headings H1-H3, bullets (2 levels), numbered lists that renumber themselves, `- [ ]` checkboxes, `---` rules.
 Enter continues lists; Enter on an empty item ends the list. Novel preset: indented first lines, no gap, centered H1.
+YAML front matter (Obsidian properties) at the top of a `.md` file can be shown, hidden (the file opens below it and
+it expands when the cursor moves up into it), or hidden and locked (only the opening `---` shows and it cannot be
+edited): Settings > YAML properties.
 
 | Keys | Action |
 |---|---|
