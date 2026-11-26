@@ -107,6 +107,10 @@ Not implemented: text selection / copy-paste, find and replace, CPU frequency sc
 
 The previous Python/Raspberry Pi e-ink version of Scripta is kept at the `legacy-python` tag.
 
+## License
+
+Scripta is released under the [MIT License](LICENSE). The third-party parts listed below keep their own licenses.
+
 ## Credits
 
 - ST7305 display driver and board pins adapted from Waveshare's ESP32-S3-RLCD-4.2 Arduino demo (Apache-2.0).
