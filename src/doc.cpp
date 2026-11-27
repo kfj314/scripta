@@ -1,5 +1,6 @@
 #include "doc.h"
 #include "gfx.h"
+#include "layout.h"
 #include "storage.h"
 
 static const uint8_t ST_BOLD = 1, ST_ITAL = 2, ST_HID = 0x80;
@@ -692,7 +693,7 @@ void Doc::move(Move m) {
       if (wantX_ < 0) {
         int x, y, lh, asc;
         caretGeom(x, y, lh, asc);
-        wantX_ = x - fmt().marginX;
+        wantX_ = x - D(fmt().marginX);
       }
       if (m == UP) {
         if (L > 0) tl = L - 1;
@@ -775,7 +776,7 @@ int Doc::lineH(Block b) const {
   return max(1, fonts::lineHeight(r) * fmt().lineSpacing / 100);
 }
 
-int Doc::textW() const { return LCD_W - 2 * fmt().marginX; }
+int Doc::textW() const { return LCD_W - 2 * D(fmt().marginX); }
 
 int Doc::adv(const fonts::Ref &r, uint8_t variant, uint32_t cp) const {
   if (cp == '\t') return 4 * fonts::adv(r, variant, ' ');
@@ -869,8 +870,8 @@ int Doc::lineX0(const Para &pa, int line, bool active, const fonts::Ref &r) cons
   int x = 0;
   int zero = fonts::adv(r, 0, '0');
   if (!active && isList(pa.kind)) {
-    int step = fonts::ascent(r) + 6;
-    int gutter = pa.kind == B_NUM ? zero * 3 + 4 : step;
+    int step = fonts::ascent(r) + D(6);
+    int gutter = pa.kind == B_NUM ? zero * 3 + D(4) : step;
     x = pa.depth * step + gutter;
   }
   if (line == 0 && pa.kind == B_BODY && !pa.suppressIndent && fmt().indentChars) x += fmt().indentChars * fonts::adv(r, 0, 'n');
@@ -1053,7 +1054,7 @@ void Doc::caretGeom(int &x, int &yDoc, int &lh, int &asc) {
   int L = lineOf(pa, rel);
   lh = lineH(k);
   asc = fonts::ascent(r);
-  x = fmt().marginX + lineX0(pa, L, true, r) + measure(pa, r, bv, pa.lines[L], rel);
+  x = D(fmt().marginX) + lineX0(pa, L, true, r) + measure(pa, r, bv, pa.lines[L], rel);
   yDoc = yTop_[i] + pa.padTop + L * lh;
 }
 
@@ -1088,7 +1089,7 @@ void Doc::drawPara(int i, int yScreen, int top, int bottom) {
   prepStyles(i);
   const char *s = p(pa);
   int n = pa.len;
-  int mx = fmt().marginX;
+  int mx = D(fmt().marginX);
   int nl = pa.lines.size();
   U8G2 &u = gfx::u();
   bool italFallback = !fonts::hasItalic(r);
@@ -1120,7 +1121,7 @@ void Doc::drawPara(int i, int yScreen, int top, int bottom) {
     }
     if (pa.checked && k == B_TODO && !active) u.drawHLine(startX, base - asc / 3, x - startX);
     if (L == 0 && !active && isList(k)) {
-      int step = asc + 6;
+      int step = asc + D(6);
       int gx = mx + pa.depth * step;
       if (k == B_BULLET) {
         int cy = base - asc / 2 + 1;
@@ -1175,8 +1176,7 @@ void Doc::render(int top, int height) {
   caretGeom(cx, cy, lh, asc);
   int sy = cy - scroll_ + top;
   u.setDrawColor(gfx::ink());
-  u.drawVLine(cx, sy + 1, lh - 2);
-  u.drawVLine(cx + 1, sy + 1, lh - 2);
+  for (int k = 0; k < D(2); k++) u.drawVLine(cx + k, sy + 1, lh - 2);
   u.setMaxClipWindow();
 }
 

@@ -1,18 +1,46 @@
 # Scripta
 
-Writerdeck firmware for the Waveshare ESP32-S3-RLCD-4.2 (400x300 reflective LCD).
-Markdown-first editor with a Bluetooth keyboard, microSD storage, per-document-type
-formatting and Wi-Fi sync.
+Writerdeck firmware for Waveshare ESP32-S3 boards. Markdown-first editor with a Bluetooth keyboard,
+microSD storage, per-document-type formatting and Wi-Fi sync.
+
+## Boards
+
+One codebase, one folder per board. Shared code (editor, menus, fonts, storage, Bluetooth, sync) is in
+`src/`; each `boards/<name>/` folder holds that board's `board.h` (pins, panel size, features) and its
+display and power code. Pick the board with `-e`:
+
+| Board | Folder | Build target |
+|---|---|---|
+| ESP32-S3-RLCD-4.2, 400x300 reflective LCD | `boards/rlcd42/` | `rlcd` (default) |
+| ESP32-S3-ePaper-3.97, 800x480 e-paper | `boards/epd397/` | `epd397` |
+
+To add a board: copy a board folder, edit its `board.h`, implement `display.cpp` (see
+`src/gfx_backend.h`) and `power.cpp` (see `src/power.h`), and add an `[env:...]` to `platformio.ini`.
 
 ## Build and flash
 
 ```
-python -m platformio run -t upload
+python -m platformio run -e rlcd -t upload
+python -m platformio run -e epd397 -t upload
 python -m platformio device monitor
 ```
 
 Run from PowerShell/cmd, not Git Bash (PlatformIO rejects MSys). If upload fails, hold BOOT while
-plugging in USB. Pins and the ST7305 driver come from Waveshare's own Arduino demo (Apache-2.0).
+plugging in USB. RLCD pins and the ST7305 driver come from Waveshare's own Arduino demo (Apache-2.0).
+
+### E-paper board notes
+
+On e-paper, each frame is diffed against
+what is on the glass and only the changed rectangle gets a partial refresh, in a background task. Keystrokes
+that arrive mid-refresh are merged into the next one. After 40 partial refreshes, a full refresh clears
+ghosting once you pause for 5 s. Controls: wheel up/down = move, press = select (hold = sleep),
+BOOT = back, hold wheel up+down = Bluetooth. Battery level comes from the board's power chip.
+
+Layouts are written in 400x300 "design units" and scaled by 1.6 on this panel (`D()` and `SF()` in
+`src/layout.h`). Bitmap fonts step up to the nearest u8g2 size, and above 24 px they switch to
+Free Universal / Old Standard / Inconsolata. TTF sizes and margins scale too, so the editor shows the
+same number of lines as on the RLCD, a little smaller physically (235 vs 119 ppi). The microphone and
+speaker are unused.
 
 ## First boot
 

@@ -2,6 +2,7 @@
 #include <deque>
 #include "config.h"
 #include "gfx.h"
+#include "layout.h"
 
 namespace ui {
 
@@ -10,11 +11,11 @@ static std::vector<std::function<void()>> deferred;
 static bool dirty = true;
 static Status status;
 
-static const uint8_t *kTitleFont = u8g2_font_helvB12_tf;
-static const uint8_t *kItemFont = u8g2_font_helvR12_tf;
-static const uint8_t *kSmallFont = u8g2_font_helvR08_tf;
-static const uint8_t *kSmallBold = u8g2_font_helvB08_tf;
-static const int kRowH = 22, kListTop = 30, kHintH = 16, kHeadH = 26;
+static const uint8_t *const kTitleFont = SF(u8g2_font_helvB12_tf);
+static const uint8_t *const kItemFont = SF(u8g2_font_helvR12_tf);
+static const uint8_t *const kSmallFont = SF(u8g2_font_helvR08_tf);
+static const uint8_t *const kSmallBold = SF(u8g2_font_helvB08_tf);
+static const int kRowH = D(22), kListTop = D(30), kHintH = D(16), kHeadH = D(26);
 
 // ---- modal state ------------------------------------------------------------------
 enum ModalKind { M_NONE, M_TEXT, M_YESNO, M_MSG };
@@ -252,10 +253,10 @@ static void drawBox(int x, int y, int w, int h) {
 
 void drawBattery(int x, int y, int pct) {
   U8G2 &u = gfx::u();
-  u.drawFrame(x, y, 20, 10);
-  u.drawBox(x + 20, y + 3, 2, 4);
-  int w = constrain(pct, 0, 100) * 16 / 100;
-  if (w > 0) u.drawBox(x + 2, y + 2, w, 6);
+  u.drawFrame(x, y, D(20), D(10));
+  u.drawBox(x + D(20), y + D(3), D(2), D(4));
+  int w = constrain(pct, 0, 100) * D(16) / 100;
+  if (w > 0) u.drawBox(x + D(2), y + D(2), w, D(10) - 2 * D(2));
 }
 
 // All icons are drawn on a 20-unit grid around (cx, cy) and scaled to `size`.
@@ -306,8 +307,8 @@ void drawIcon(Icon ic, int cx, int cy, int size) {
       break;
     case I_HELP:
       u.drawCircle(cx, cy, max(3, S(9)));
-      u.setFont(u8g2_font_helvB10_tf);
-      u.drawStr(cx - 3, cy + 5, "?");
+      u.setFont(size > D(16) ? SF(u8g2_font_helvB10_tf) : u8g2_font_helvB10_tf);
+      u.drawStr(cx - u.getStrWidth("?") / 2, cy + u.getAscent() / 2, "?");
       break;
     case I_SYNC:
       line(-8, -3, 6, -3);
@@ -333,7 +334,7 @@ void drawIcon(Icon ic, int cx, int cy, int size) {
       line(-2, 6, 8, -6);
       break;
     case I_FONT:
-      u.setFont(size <= 16 ? u8g2_font_ncenB08_tf : u8g2_font_ncenB14_tf);
+      u.setFont(size <= D(16) ? SF(u8g2_font_ncenB08_tf) : SF(u8g2_font_ncenB14_tf));
       u.drawStr(cx - u.getStrWidth("Aa") / 2, cy + u.getAscent() / 2, "Aa");
       break;
     case I_CLOSE:
@@ -371,83 +372,81 @@ void drawHeader(const String &title) {
   gfx::fillRect(0, 0, LCD_W, kHeadH - 2, true);
   u.setDrawColor(gfx::paper());
   // status chips on the right, built right to left
-  int x = LCD_W - 6;
+  int x = LCD_W - D(6);
   u.setFont(kSmallBold);
   if (status.clock.length()) {
     int w = u.getUTF8Width(status.clock.c_str());
     x -= w;
-    u.drawUTF8(x, 16, status.clock.c_str());
-    x -= 10;
+    u.drawUTF8(x, D(16), status.clock.c_str());
+    x -= D(10);
   }
   String pct = String(status.battery) + "%";
   int pw = u.getUTF8Width(pct.c_str());
   x -= pw;
-  u.drawUTF8(x, 16, pct.c_str());
-  x -= 25;
+  u.drawUTF8(x, D(16), pct.c_str());
+  x -= D(25);
   // battery glyph in paper colour on the ink bar
-  u.drawFrame(x, 6, 20, 10);
-  u.drawBox(x + 20, 9, 2, 4);
-  int bw = constrain(status.battery, 0, 100) * 16 / 100;
-  if (bw > 0) u.drawBox(x + 2, 8, bw, 6);
-  x -= 8;
+  drawBattery(x, D(6), status.battery);
+  x -= D(8);
   if (status.wifi) {
-    drawIcon(I_WIFI, x - 8, 9, 16);
-    x -= 24;
+    drawIcon(I_WIFI, x - D(8), D(9), D(16));
+    x -= D(24);
   }
   if (status.bt) {
-    drawIcon(I_BT, x - 4, 11, 16);
-    x -= 20;
+    drawIcon(I_BT, x - D(4), D(11), D(16));
+    x -= D(20);
   }
   u.setFont(kTitleFont);
-  u.drawUTF8(8, 18, fit(u, title, x - 16).c_str());
+  u.drawUTF8(D(8), D(18), fit(u, title, x - D(16)).c_str());
   u.setDrawColor(gfx::ink());
 }
 
 static void drawModal() {
   U8G2 &u = gfx::u();
   if (modal == M_TEXT) {
-    int w = 360, h = 92, x = (LCD_W - w) / 2, y = (LCD_H - h) / 2;
+    int w = D(360), h = D(92), x = (LCD_W - w) / 2, y = (LCD_H - h) / 2;
+    int m = D(12);
     drawBox(x, y, w, h);
     u.setFont(kTitleFont);
-    u.drawUTF8(x + 12, y + 22, fit(u, mTitle, w - 24).c_str());
+    u.drawUTF8(x + m, y + D(22), fit(u, mTitle, w - 2 * m).c_str());
     u.setFont(kItemFont);
     String shown = mText;
     if (mMask && !mShow) { shown = ""; for (size_t i = 0; i < mText.length(); i++) shown += '*'; }
-    int tw = w - 24;
+    int tw = w - 2 * m;
     String left = shown.substring(0, mCur);
     int cw = u.getUTF8Width(left.c_str());
-    int off = cw > tw - 6 ? cw - (tw - 6) : 0;
-    u.setClipWindow(x + 12, y + 30, x + w - 12, y + 56);
-    u.drawUTF8(x + 12 - off, y + 50, shown.c_str());
-    u.drawVLine(x + 12 + cw - off, y + 36, 18);
+    int off = cw > tw - D(6) ? cw - (tw - D(6)) : 0;
+    u.setClipWindow(x + m, y + D(30), x + w - m, y + D(56));
+    u.drawUTF8(x + m - off, y + D(50), shown.c_str());
+    for (int k = 0; k < D(1); k++) u.drawVLine(x + m + cw - off + k, y + D(36), D(18));
     u.setMaxClipWindow();
-    u.drawHLine(x + 12, y + 56, tw);
+    u.drawHLine(x + m, y + D(56), tw);
     u.setFont(kSmallFont);
-    u.drawStr(x + 12, y + h - 10, mMask ? "Enter OK   Esc cancel   Tab show/hide" : "Enter OK   Esc cancel   Ctrl+U clear");
+    u.drawStr(x + m, y + h - D(10), mMask ? "Enter OK   Esc cancel   Tab show/hide" : "Enter OK   Esc cancel   Ctrl+U clear");
   } else if (modal == M_YESNO) {
-    int w = 340, h = 80, x = (LCD_W - w) / 2, y = (LCD_H - h) / 2;
+    int w = D(340), h = D(80), x = (LCD_W - w) / 2, y = (LCD_H - h) / 2;
     drawBox(x, y, w, h);
     u.setFont(kItemFont);
-    u.drawUTF8(x + 12, y + 28, fit(u, mTitle, w - 24).c_str());
+    u.drawUTF8(x + D(12), y + D(28), fit(u, mTitle, w - D(24)).c_str());
     u.setFont(kSmallFont);
-    u.drawStr(x + 12, y + h - 14, "Y / Enter = yes     N / Esc = no");
+    u.drawStr(x + D(12), y + h - D(14), "Y / Enter = yes     N / Esc = no");
   } else if (modal == M_MSG) {
-    int w = 360, h = 120, x = (LCD_W - w) / 2, y = (LCD_H - h) / 2;
+    int w = D(360), h = D(120), x = (LCD_W - w) / 2, y = (LCD_H - h) / 2;
     drawBox(x, y, w, h);
     u.setFont(kTitleFont);
-    u.drawUTF8(x + 12, y + 24, fit(u, mTitle, w - 24).c_str());
+    u.drawUTF8(x + D(12), y + D(24), fit(u, mTitle, w - D(24)).c_str());
     u.setFont(kItemFont);
-    int ly = y + 46;
+    int ly = y + D(46);
     String rest = mText;
-    while (rest.length() && ly < y + h - 20) {
+    while (rest.length() && ly < y + h - D(20)) {
       int nl = rest.indexOf('\n');
       String line = nl < 0 ? rest : rest.substring(0, nl);
       rest = nl < 0 ? String("") : rest.substring(nl + 1);
-      u.drawUTF8(x + 12, ly, fit(u, line, w - 24).c_str());
-      ly += 17;
+      u.drawUTF8(x + D(12), ly, fit(u, line, w - D(24)).c_str());
+      ly += D(17);
     }
     u.setFont(kSmallFont);
-    u.drawStr(x + 12, y + h - 8, "Press Enter");
+    u.drawStr(x + D(12), y + h - D(8), "Press Enter");
   }
 }
 
@@ -468,42 +467,41 @@ static void drawList(Frame &f) {
       String up = it.label;
       up.toUpperCase();
       int w = u.getUTF8Width(up.c_str());
-      u.drawUTF8(10, y + 15, up.c_str());
-      u.drawHLine(16 + w, y + 11, LCD_W - 26 - w);
-      u.drawHLine(16 + w, y + 12, LCD_W - 26 - w);
+      u.drawUTF8(D(10), y + D(15), up.c_str());
+      for (int k = 0; k < D(2); k++) u.drawHLine(D(16) + w, y + D(11) + k, LCD_W - D(26) - w);
       continue;
     }
     bool sel = i == f.sel;
     if (sel) {
-      gfx::fillRect(4, y, LCD_W - 12, kRowH - 2, true);
+      gfx::fillRect(D(4), y, LCD_W - D(12), kRowH - D(2), true);
     }
     u.setDrawColor(sel ? gfx::paper() : gfx::ink());
-    int x0 = 12;
+    int x0 = D(12);
     if (it.icon != I_NONE) {
-      drawIcon(it.icon, 20, y + kRowH / 2 - 1, 14);
-      x0 = 34;
+      drawIcon(it.icon, D(20), y + kRowH / 2 - 1, D(14));
+      x0 = D(34);
     }
     u.setFont(kItemFont);
     bool chip = it.adjust && it.detail.length();
     String det = it.detail;
     int dw = det.length() ? u.getUTF8Width(det.c_str()) : 0;
-    int maxLabel = LCD_W - x0 - 14 - (dw ? dw + (chip ? 24 : 12) : 0);
+    int maxLabel = LCD_W - x0 - D(14) - (dw ? dw + (chip ? D(24) : D(12)) : 0);
     String lab = fit(u, it.label, maxLabel);
-    u.drawUTF8(x0, y + 15, lab.c_str());
+    u.drawUTF8(x0, y + D(15), lab.c_str());
     if (dw) {
-      int rx = LCD_W - 14 - dw;
-      u.drawUTF8(rx, y + 15, det.c_str());
+      int rx = LCD_W - D(14) - dw;
+      u.drawUTF8(rx, y + D(15), det.c_str());
     }
     if (it.dim && !sel) {
-      for (int x = x0; x < x0 + u.getUTF8Width(lab.c_str()); x += 3) u.drawPixel(x, y + 18);
+      for (int x = x0; x < x0 + u.getUTF8Width(lab.c_str()); x += 3) u.drawPixel(x, y + D(18));
     }
     u.setDrawColor(gfx::ink());
   }
   if (f.items.size() > (size_t)rows) {
     int bh = (LCD_H - kListTop - kHintH);
-    int th = max(8, bh * rows / (int)f.items.size());
+    int th = max(D(8), bh * rows / (int)f.items.size());
     int ty = kListTop + (bh - th) * f.top / max(1, (int)f.items.size() - rows);
-    u.drawBox(LCD_W - 3, ty, 2, th);
+    u.drawBox(LCD_W - D(3), ty, D(2), th);
   }
 }
 
@@ -520,7 +518,7 @@ void draw() {
       u.drawHLine(0, LCD_H - kHintH, LCD_W);
       u.setFont(kSmallFont);
       String hint = f.hint.length() ? f.hint : String("Up/Down move    Enter select    Left/Right change    Esc back");
-      u.drawUTF8(8, LCD_H - 4, fit(u, hint, LCD_W - 16).c_str());
+      u.drawUTF8(D(8), LCD_H - D(4), fit(u, hint, LCD_W - D(16)).c_str());
     }
   }
   if (modal != M_NONE) drawModal();
@@ -528,14 +526,14 @@ void draw() {
 
 void busy(const String &title, const std::vector<String> &lines) {
   U8G2 &u = gfx::u();
-  int w = 360, h = 40 + 17 * min((int)lines.size(), 6), x = (LCD_W - w) / 2, y = (LCD_H - h) / 2;
+  int w = D(360), h = D(40) + D(17) * min((int)lines.size(), 6), x = (LCD_W - w) / 2, y = (LCD_H - h) / 2;
   drawBox(x, y, w, h);
   u.setFont(kTitleFont);
-  u.drawUTF8(x + 12, y + 24, fit(u, title, w - 24).c_str());
+  u.drawUTF8(x + D(12), y + D(24), fit(u, title, w - D(24)).c_str());
   u.setFont(kItemFont);
   int start = max(0, (int)lines.size() - 6);
   for (int i = start; i < (int)lines.size(); i++)
-    u.drawUTF8(x + 12, y + 42 + (i - start) * 17, fit(u, lines[i], w - 24).c_str());
+    u.drawUTF8(x + D(12), y + D(42) + (i - start) * D(17), fit(u, lines[i], w - D(24)).c_str());
   gfx::flush();
 }
 

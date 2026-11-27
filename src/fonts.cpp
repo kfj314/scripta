@@ -3,6 +3,7 @@
 #include <map>
 #include <vector>
 #include "gfx.h"
+#include "layout.h"
 #include "storage.h"
 
 #define STBTT_STATIC
@@ -40,7 +41,7 @@ static const Builtin kBuiltin[] = {
 };
 static const int kNumBuiltin = sizeof(kBuiltin) / sizeof(kBuiltin[0]);
 
-static const int kTtfPx[LEVELS] = {12, 14, 16, 19, 24, 32};
+static const int kTtfPx[LEVELS] = {D(12), D(14), D(16), D(19), D(24), D(32)};
 static const int kThreshold = 96;  // coverage needed to light a pixel
 
 // ---- TTF families ---------------------------------------------------------------
@@ -281,8 +282,9 @@ static TtfFace *ttfOf(const Ref &r) {
 }
 
 // ---- sheared bitmap glyphs (italic for the built-in fonts) ---------------------------------
-static const int kTmpTilesW = 7, kTmpTilesH = 5;
-static const int kTmpW = kTmpTilesW * 8, kTmpBase = 30, kTmpOx = 4;
+// Scratch canvas for one glyph: 56x40 design px, scaled for bigger fonts.
+static const int kTmpTilesW = (D(56) + 7) / 8, kTmpTilesH = (D(40) + 7) / 8;
+static const int kTmpW = kTmpTilesW * 8, kTmpBase = D(30), kTmpOx = D(4);
 static u8g2_t tmpU;
 static uint8_t tmpBuf[kTmpTilesW * 8 * kTmpTilesH];
 static bool tmpReady = false;
@@ -328,8 +330,7 @@ static void drawSheared(const uint8_t *font, int x, int baseline, uint32_t cp) {
 // ---- built-ins ---------------------------------------------------------------------------------
 static const uint8_t *builtinFont(const Ref &r, uint8_t variant) {
   const Builtin &b = kBuiltin[r.face];
-  if (variant & V_BOLD) return b.bold[r.level];
-  return b.reg[r.level];
+  return SF((variant & V_BOLD) ? b.bold[r.level] : b.reg[r.level]);
 }
 
 struct AdvTable {
@@ -407,7 +408,7 @@ void draw(const Ref &r, uint8_t variant, int x, int baseline, uint32_t cp) {
 
 int ascent(const Ref &r) {
   if (r.face < kNumBuiltin) {
-    gfx::u().setFont(kBuiltin[r.face].reg[r.level]);
+    gfx::u().setFont(SF(kBuiltin[r.face].reg[r.level]));
     return gfx::u().getAscent();
   }
   TtfFace *f = ttfOf(r);
@@ -420,7 +421,7 @@ int ascent(const Ref &r) {
 
 int lineHeight(const Ref &r) {
   if (r.face < kNumBuiltin) {
-    gfx::u().setFont(kBuiltin[r.face].reg[r.level]);
+    gfx::u().setFont(SF(kBuiltin[r.face].reg[r.level]));
     return gfx::u().getAscent() - gfx::u().getDescent() + 1;
   }
   TtfFace *f = ttfOf(r);

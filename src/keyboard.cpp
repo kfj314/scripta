@@ -362,6 +362,10 @@ void begin() {
   keyQ = xQueueCreate(64, sizeof(Key));
   pinMode(PIN_BOOT, INPUT_PULLUP);
   pinMode(PIN_KEY, INPUT_PULLUP);
+#if defined(HAS_JOG_WHEEL)
+  pinMode(PIN_BTN_UP, INPUT_PULLUP);
+  pinMode(PIN_BTN_DOWN, INPUT_PULLUP);
+#endif
   xTaskCreatePinnedToCore(worker, "ble", 8192, nullptr, 2, nullptr, 0);
 }
 
@@ -439,6 +443,62 @@ static void pushKey(uint32_t code, uint8_t mods = 0) {
 static uint32_t bothDown = 0;
 static bool bothFired = false;
 
+#if defined(HAS_JOG_WHEEL)
+// E-paper board: jog wheel up/down = up/down (auto-repeat when held),
+// wheel press = select (hold = sleep), BOOT = back, up+down held = Bluetooth.
+// Like the RLCD board, the buttons only navigate while no keyboard is connected.
+static uint32_t upDown = 0, dnDown = 0, upRepeat = 0, dnRepeat = 0;
+static bool comboLatched = false;
+
+static void repeatButton(bool pressed, uint32_t &down, uint32_t &next, uint32_t code, uint32_t now) {
+  if (pressed && !down) {
+    down = now;
+    next = now + 500;
+    if (!comboLatched && !connected()) pushKey(code);
+  } else if (pressed && now >= next) {
+    next = now + 150;
+    if (!comboLatched && !connected()) pushKey(code);
+  } else if (!pressed) {
+    down = 0;
+  }
+}
+
+static void pollButtons() {
+  uint32_t now = millis();
+  bool up = digitalRead(PIN_BTN_UP) == LOW, dn = digitalRead(PIN_BTN_DOWN) == LOW;
+  bool fn = digitalRead(PIN_KEY) == LOW, b = digitalRead(PIN_BOOT) == LOW;
+
+  if (up && dn) {
+    if (!bothDown) { bothDown = now; bothFired = false; }
+    comboLatched = true;
+    if (!bothFired && now - bothDown > 1500) {
+      btReq = true;
+      bothFired = true;
+    }
+  } else {
+    bothDown = 0;
+    if (!up && !dn) comboLatched = false;
+  }
+  repeatButton(up, upDown, upRepeat, K_UP, now);
+  repeatButton(dn, dnDown, dnRepeat, K_DOWN, now);
+
+  if (fn && !keyDown) { keyDown = now; keyLong = false; }
+  if (fn && keyDown && !keyLong && now - keyDown > 1200) {
+    keyLong = true;
+    sleepReq = true;
+  }
+  if (!fn && keyDown) {
+    if (!keyLong && !connected()) pushKey(K_ENTER);
+    keyDown = 0;
+  }
+
+  if (b && !bootDown) bootDown = now;
+  if (!b && bootDown) {
+    if (!connected()) pushKey(K_ESC);
+    bootDown = 0;
+  }
+}
+#else
 static void pollButtons() {
   uint32_t now = millis();
   bool b = digitalRead(PIN_BOOT) == LOW, k = digitalRead(PIN_KEY) == LOW;
@@ -473,6 +533,7 @@ static void pollButtons() {
     keyDown = 0;
   }
 }
+#endif  // HAS_JOG_WHEEL
 
 static void pollSerial() {
   while (Serial.available()) {

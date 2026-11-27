@@ -1,17 +1,20 @@
 #include "gfx.h"
-#include "ST7305_U8g2.h"
+#include "gfx_backend.h"
 
 namespace gfx {
-static ST7305_U8g2 lcd(PIN_LCD_SCK, PIN_LCD_MOSI, PIN_LCD_DC, PIN_LCD_CS, PIN_LCD_RST);
 static U8G2 *g = nullptr;
 static bool inv = false;
 
 void begin() {
-  lcd.begin(0, U8G2_R1);
-  g = lcd.getU8g2();
+  g = backend::begin();
   g->setFontMode(1);
   g->setDrawColor(1);
 }
+void flush() { backend::flush(); }
+void waitIdle(uint32_t timeoutMs) { backend::waitIdle(timeoutMs); }
+void requestFullRefresh() { backend::requestFullRefresh(); }
+void sleep() { backend::sleep(); }
+
 U8G2 &u() { return *g; }
 void setInverted(bool v) { inv = v; }
 bool inverted() { return inv; }
@@ -27,7 +30,6 @@ void clear() {
   }
   g->setDrawColor(ink());
 }
-void flush() { g->sendBuffer(); }
 void fillRect(int x, int y, int w, int h, bool isInk) {
   g->setDrawColor(isInk ? ink() : paper());
   g->drawBox(x, y, w, h);

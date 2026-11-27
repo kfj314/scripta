@@ -7,8 +7,10 @@
 #include "fonts.h"
 #include "gfx.h"
 #include "keyboard.h"
+#include "layout.h"
 #include "meta.h"
 #include "net.h"
+#include "power.h"
 #include "rtc.h"
 #include "settings.h"
 #include "storage.h"
@@ -43,32 +45,7 @@ static void toast(const String &s, uint32_t ms = 2200) {
 
 // ------------------------------------------------------------------ helpers
 
-// Single-cell Li-ion resting-voltage curve (mV -> %), interpolated.
-static int percentFromMv(int mv) {
-  static const int curve[][2] = {{3300, 0}, {3500, 5}, {3600, 12}, {3700, 25}, {3750, 38}, {3800, 50},
-                                 {3870, 62}, {3950, 75}, {4050, 88}, {4150, 97}, {4200, 100}};
-  const int n = sizeof(curve) / sizeof(curve[0]);
-  if (mv <= curve[0][0]) return 0;
-  if (mv >= curve[n - 1][0]) return 100;
-  for (int i = 1; i < n; i++) {
-    if (mv <= curve[i][0]) {
-      int span = curve[i][0] - curve[i - 1][0];
-      return curve[i - 1][1] + (curve[i][1] - curve[i - 1][1]) * (mv - curve[i - 1][0]) / span;
-    }
-  }
-  return 100;
-}
-
-static int batMv = 0;
-
-// Averages several ADC reads (divider is 3:1) and smooths over time.
-static int readBattery() {
-  uint32_t sum = 0;
-  for (int i = 0; i < 16; i++) sum += analogReadMilliVolts(PIN_BAT);
-  int mv = (int)(sum / 16) * 3;
-  batMv = batMv ? (batMv * 3 + mv) / 4 : mv;
-  return percentFromMv(batMv);
-}
+static int readBattery() { return power::percent(); }
 
 static String twoDigits(int v) { return v < 10 ? "0" + String(v) : String(v); }
 
@@ -99,7 +76,7 @@ static const char *kHelp[][2] = {
     {"Ctrl+.", "Show / hide status bar"},
     {"Ctrl+Q", "Sleep"},
     {"Hold KEY button", "Sleep (wake with KEY)"},
-    {"Hold BOOT + KEY", "Bluetooth: scan for keyboards"},
+    {BTN_BT_COMBO, "Bluetooth: scan for keyboards"},
 };
 
 // ------------------------------------------------------------------ documents
@@ -414,7 +391,7 @@ static void aboutFrame() {
     line("Scripta", SCRIPTA_VERSION, ui::I_INFO);
     line("Storage", storage::usingSD() ? "microSD" : (storage::ready() ? "internal flash (no card!)" : "NONE"), ui::I_FOLDER);
     if (storage::ready()) line("Free space", String((unsigned long)(storage::freeBytes() / 1024 / 1024)) + " MB");
-    line("Battery", String(batPct) + "%  " + String(batMv) + " mV", ui::I_BATT);
+    line("Battery", String(batPct) + "%  " + String(power::millivolts()) + " mV", ui::I_BATT);
     line("Bluetooth", kb::stateText(), ui::I_BT);
     items.push_back(ui::section("Memory"));
     line("Internal RAM free", kb_(ESP.getFreeHeap()) + " of " + kb_(ESP.getHeapSize()));
@@ -663,7 +640,7 @@ static void btFrame() {
   Frame f;
   f.title = "Bluetooth keyboard";
   f.tickMs = 400;
-  f.hint = "Pairing mode, then Scan. BOOT=down KEY=select. Shortcut: hold BOOT+KEY";
+  f.hint = "Pairing mode, then Scan. " BTN_NAV_HINT ". Shortcut: " BTN_BT_COMBO;
   f.onTick = []() { ui::refresh(); };
   f.build = [](std::vector<Item> &items) {
     if (kb::passkey()) {
@@ -841,80 +818,85 @@ static void homeDraw() {
   U8G2 &u = gfx::u();
   const auto &rec = meta::recents();
   ui::drawHeader("Scripta");
+  // Design units (D) for a 400x300 screen. The tools column hugs the right edge
+  // and the recent column takes whatever width is left, so wider panels fill.
+  const int toolsX = LCD_W - D(192), tileW = D(89), tileH = D(52), tileDx = D(95);
+  const int colW = toolsX - D(14);  // recent column width (starts at D(6))
 
   // hero card
   bool hs = homeFocus == 0;
-  if (hs) gfx::fillRect(8, 32, 384, 56, true);
+  if (hs) gfx::fillRect(D(8), D(32), LCD_W - D(16), D(56), true);
   u.setDrawColor(hs ? gfx::paper() : gfx::ink());
-  u.drawRFrame(8, 32, 384, 56, 5);
-  ui::drawIcon(rec.empty() ? ui::I_NEW : ui::I_FILE, 32, 60, 24);
-  u.setFont(u8g2_font_helvB08_tf);
-  u.drawStr(56, 48, rec.empty() ? "START WRITING" : "CONTINUE WRITING");
-  u.setFont(u8g2_font_helvB14_tf);
+  u.drawRFrame(D(8), D(32), LCD_W - D(16), D(56), D(5));
+  ui::drawIcon(rec.empty() ? ui::I_NEW : ui::I_FILE, D(32), D(60), D(24));
+  u.setFont(SF(u8g2_font_helvB08_tf));
+  u.drawStr(D(56), D(48), rec.empty() ? "START WRITING" : "CONTINUE WRITING");
+  u.setFont(SF(u8g2_font_helvB14_tf));
   String name = rec.empty() ? String("Create your first file") : storage::baseName(rec[0].path);
-  while (name.length() > 4 && u.getUTF8Width(name.c_str()) > 320) name.remove(name.length() - 1);
-  u.drawUTF8(56, 70, name.c_str());
-  u.setFont(u8g2_font_helvR08_tf);
+  while (name.length() > 4 && u.getUTF8Width(name.c_str()) > LCD_W - D(80)) name.remove(name.length() - 1);
+  u.drawUTF8(D(56), D(70), name.c_str());
+  u.setFont(SF(u8g2_font_helvR08_tf));
   String sub = rec.empty() ? String("Press Enter, or N") : String(typeName(meta::typeOf(rec[0].path))) + "   " + storage::parent(rec[0].path);
-  u.drawUTF8(56, 83, sub.c_str());
+  u.drawUTF8(D(56), D(83), sub.c_str());
   u.setDrawColor(gfx::ink());
 
+  auto sectionLabel = [&](int x, const char *label, int right) {
+    u.setFont(SF(u8g2_font_helvB08_tf));
+    u.drawStr(x, D(106), label);
+    int lx = x + u.getStrWidth(label) + D(6);
+    for (int k = 0; k < D(2); k++) u.drawHLine(lx, D(102) + k, right - lx);
+  };
+
   // recent column
-  u.setFont(u8g2_font_helvB08_tf);
-  u.drawStr(10, 106, "RECENT");
-  u.drawHLine(52, 102, 148);
-  u.drawHLine(52, 103, 148);
+  sectionLabel(D(10), "RECENT", D(6) + colW);
   int rc = recentCount();
-  u.setFont(u8g2_font_helvR10_tf);
+  u.setFont(SF(u8g2_font_helvR10_tf));
   for (int i = 1; i <= rc; i++) {
-    int y = 110 + (i - 1) * 24;
+    int y = D(110) + (i - 1) * D(24);
     bool s = homeFocus == i;
-    if (s) gfx::fillRect(6, y, 194, 22, true);
+    if (s) gfx::fillRect(D(6), y, colW, D(22), true);
     u.setDrawColor(s ? gfx::paper() : gfx::ink());
-    ui::drawIcon(ui::I_FILE, 20, y + 11, 14);
+    ui::drawIcon(ui::I_FILE, D(20), y + D(11), D(14));
     String n = storage::baseName(rec[i].path);
-    while (n.length() > 3 && u.getUTF8Width(n.c_str()) > 160) n.remove(n.length() - 1);
-    u.drawUTF8(34, y + 15, n.c_str());
+    while (n.length() > 3 && u.getUTF8Width(n.c_str()) > colW - D(40)) n.remove(n.length() - 1);
+    u.drawUTF8(D(34), y + D(15), n.c_str());
     u.setDrawColor(gfx::ink());
   }
   if (rc == 0) {
-    u.setFont(u8g2_font_helvR08_tf);
-    u.drawStr(12, 126, "No other recent files yet");
+    u.setFont(SF(u8g2_font_helvR08_tf));
+    u.drawStr(D(12), D(126), "No other recent files yet");
   }
-  // storage chip
-  u.setFont(u8g2_font_helvR08_tf);
+  // storage and keyboard chips
+  u.setFont(SF(u8g2_font_helvR08_tf));
   String st = storage::usingSD() ? String("SD card  ") + String((unsigned long)(storage::freeBytes() / 1024 / 1024)) + " MB free"
                                  : String(storage::ready() ? "NO SD CARD - using flash" : "Storage unavailable");
-  u.drawRFrame(8, 236, 192, 20, 4);
-  ui::drawIcon(ui::I_FOLDER, 20, 246, 12);
-  u.drawUTF8(32, 249, st.c_str());
+  u.drawRFrame(D(8), D(236), colW - D(2), D(20), D(4));
+  ui::drawIcon(ui::I_FOLDER, D(20), D(246), D(12));
+  u.drawUTF8(D(32), D(249), st.c_str());
   String kbs = kb::connected() ? "Keyboard connected" : (kb::savedCount() ? "Keyboard paired" : "No keyboard paired");
-  u.drawRFrame(8, 260, 192, 20, 4);
-  ui::drawIcon(ui::I_BT, 20, 270, 12);
-  u.drawUTF8(32, 273, kbs.c_str());
+  u.drawRFrame(D(8), D(260), colW - D(2), D(20), D(4));
+  ui::drawIcon(ui::I_BT, D(20), D(270), D(12));
+  u.drawUTF8(D(32), D(273), kbs.c_str());
 
   // tools column
-  u.setFont(u8g2_font_helvB08_tf);
-  u.drawStr(208, 106, "TOOLS");
-  u.drawHLine(244, 102, 148);
-  u.drawHLine(244, 103, 148);
+  sectionLabel(toolsX, "TOOLS", toolsX + tileDx + tileW);
   static const char *labels[kTiles] = {"New", "Files", "Bluetooth", "Wi-Fi & sync", "Settings", "Help"};
   static const ui::Icon icons[kTiles] = {ui::I_NEW, ui::I_FOLDER, ui::I_BT, ui::I_WIFI, ui::I_GEAR, ui::I_HELP};
   for (int t = 0; t < kTiles; t++) {
-    int x = 208 + (t % 2) * 95, y = 110 + (t / 2) * 56;
+    int x = toolsX + (t % 2) * tileDx, y = D(110) + (t / 2) * D(56);
     bool s = homeFocus == 100 + t;
-    if (s) gfx::fillRect(x, y, 89, 52, true);
+    if (s) gfx::fillRect(x, y, tileW, tileH, true);
     u.setDrawColor(s ? gfx::paper() : gfx::ink());
-    u.drawRFrame(x, y, 89, 52, 5);
-    ui::drawIcon(icons[t], x + 44, y + 20, 22);
-    u.setFont(u8g2_font_helvB08_tf);
+    u.drawRFrame(x, y, tileW, tileH, D(5));
+    ui::drawIcon(icons[t], x + tileW / 2, y + D(20), D(22));
+    u.setFont(SF(u8g2_font_helvB08_tf));
     int w = u.getUTF8Width(labels[t]);
-    u.drawUTF8(x + (89 - w) / 2, y + 46, labels[t]);
+    u.drawUTF8(x + (tileW - w) / 2, y + D(46), labels[t]);
     u.setDrawColor(gfx::ink());
   }
-  u.drawHLine(0, LCD_H - 16, LCD_W);
-  u.setFont(u8g2_font_helvR08_tf);
-  u.drawUTF8(8, LCD_H - 4, "Arrows move   Enter open   N new   F files   B Bluetooth   W Wi-Fi   S settings   H help");
+  u.drawHLine(0, LCD_H - D(16), LCD_W);
+  u.setFont(SF(u8g2_font_helvR08_tf));
+  u.drawUTF8(D(8), LCD_H - D(4), "Arrows move   Enter open   N new   F files   B Bluetooth   W Wi-Fi   S settings   H help");
 }
 
 static void homeFrame() {
@@ -1019,8 +1001,8 @@ static void editorKey(const Key &k) {
   }
 }
 
-static const uint8_t *kStatusFont = u8g2_font_helvR08_tf;
-static const int kBarH = 14;
+static const uint8_t *const kStatusFont = SF(u8g2_font_helvR08_tf);
+static const int kBarH = D(14);
 
 static void drawStatus() {
   U8G2 &u = gfx::u();
@@ -1029,14 +1011,14 @@ static void drawStatus() {
   u.setDrawColor(gfx::ink());
   u.drawHLine(0, y0, LCD_W);
   u.setFont(kStatusFont);
-  int base = LCD_H - 3;
+  int base = LCD_H - D(3);
   // right side, built right to left
-  int x = LCD_W - 4;
+  int x = LCD_W - D(4);
   auto putR = [&](const String &s) {
     int w = u.getUTF8Width(s.c_str());
     x -= w;
     u.drawUTF8(x, base, s.c_str());
-    x -= 8;
+    x -= D(8);
   };
   putR(String(batPct) + "%");
   String c = clockText();
@@ -1054,22 +1036,21 @@ static void drawStatus() {
     wc += "  " + String(made) + "/" + String(S.goalWords);
   }
   int wcw = u.getUTF8Width(wc.c_str());
-  int nameMax = x - wcw - 16;
+  int nameMax = x - wcw - D(16);
   while (name.length() > 4 && u.getUTF8Width(name.c_str()) > nameMax) name.remove(name.length() - 1);
   if (toastMsg.length() && millis() < toastUntil) {
     gfx::fillRect(0, y0, LCD_W, kBarH, true);
     u.setDrawColor(gfx::paper());
-    u.drawUTF8(6, base, toastMsg.c_str());
+    u.drawUTF8(D(6), base, toastMsg.c_str());
     u.setDrawColor(gfx::ink());
     return;
   }
-  u.drawUTF8(4, base, name.c_str());
+  u.drawUTF8(D(4), base, name.c_str());
   u.drawUTF8(x - wcw, base, wc.c_str());
   if (S.goalWords) {
     int made = max(0, w - sessionStartWords);
     int bw = min(LCD_W, LCD_W * made / S.goalWords);
-    u.drawHLine(0, y0 - 1, bw);
-    u.drawHLine(0, y0 - 2, bw);
+    for (int k = 1; k <= D(2); k++) u.drawHLine(0, y0 - k, bw);
   }
 }
 
@@ -1083,7 +1064,7 @@ static void drawEditor() {
     gfx::fillRect(0, LCD_H - kBarH, LCD_W, kBarH, true);
     u.setDrawColor(gfx::paper());
     u.setFont(kStatusFont);
-    u.drawUTF8(6, LCD_H - 3, toastMsg.c_str());
+    u.drawUTF8(D(6), LCD_H - D(3), toastMsg.c_str());
     u.setDrawColor(gfx::ink());
   }
 }
@@ -1097,16 +1078,17 @@ static void sleepNow() {
   net::off();
   delay(300);
   sleeping = true;
-  toastMsg = "Asleep - press KEY to wake";
+  toastMsg = "Asleep - " WAKE_HINT;
   toastUntil = millis() + 3600000UL;
   gfx::clear();
   if (doc.open()) drawEditor();
   else {
-    gfx::u().setFont(u8g2_font_helvB18_tf);
-    gfx::u().drawUTF8(110, 150, "Scripta asleep");
+    U8G2 &u = gfx::u();
+    u.setFont(SF(u8g2_font_helvB18_tf));
+    u.drawUTF8((LCD_W - u.getUTF8Width("Scripta asleep")) / 2, LCD_H / 2, "Scripta asleep");
   }
   gfx::flush();
-  delay(100);
+  gfx::sleep();  // e-paper: wait for the refresh, then power the panel down (image stays)
   uint64_t mask = (1ULL << PIN_KEY) | (1ULL << PIN_BOOT);
   rtc_gpio_pullup_en((gpio_num_t)PIN_KEY);
   rtc_gpio_pullup_en((gpio_num_t)PIN_BOOT);
@@ -1124,17 +1106,17 @@ static void centered(const char *text, int y) {
 static void splash(const String &status) {
   gfx::clear();
   U8G2 &u = gfx::u();
-  u.drawFrame(10, 10, 380, 280);
-  u.drawFrame(14, 14, 372, 272);
-  u.setFont(u8g2_font_ncenB24_tf);
-  centered("Scripta", 140);
-  u.drawHLine(130, 156, 140);
-  u.drawHLine(130, 158, 140);
-  u.setFont(u8g2_font_ncenR14_tf);
-  centered("a writerdeck", 184);
-  u.setFont(u8g2_font_helvR08_tf);
-  centered(status.c_str(), 258);
-  centered("v" SCRIPTA_VERSION, 274);
+  u.drawFrame(D(10), D(10), LCD_W - D(20), LCD_H - D(20));
+  u.drawFrame(D(14), D(14), LCD_W - D(28), LCD_H - D(28));
+  u.setFont(SF(u8g2_font_ncenB24_tf));
+  centered("Scripta", D(140));
+  u.drawHLine(LCD_W / 2 - D(70), D(156), D(140));
+  u.drawHLine(LCD_W / 2 - D(70), D(158), D(140));
+  u.setFont(SF(u8g2_font_ncenR14_tf));
+  centered("a writerdeck", D(184));
+  u.setFont(SF(u8g2_font_helvR08_tf));
+  centered(status.c_str(), D(258));
+  centered("v" SCRIPTA_VERSION, D(274));
   gfx::flush();
 }
 
@@ -1143,6 +1125,7 @@ static const uint32_t kSplashMs = 6000;
 void setup() {
   Serial.begin(115200);
   uint32_t t0 = millis();
+  power::begin();  // e-paper board: switches on the panel's supply rail
   gfx::begin();
   bool woke = esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_UNDEFINED;
   splash("starting...");

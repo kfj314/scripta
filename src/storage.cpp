@@ -11,8 +11,13 @@ static bool sdOk = false;
 static bool lfsOk = false;
 
 bool begin() {
+#if defined(SD_4BIT)
+  SD_MMC.setPins(PIN_SD_CLK, PIN_SD_CMD, PIN_SD_D0, PIN_SD_D1, PIN_SD_D2, PIN_SD_D3);
+  sdOk = SD_MMC.begin("/sdcard", false, false, SDMMC_FREQ_DEFAULT, 8);
+#else
   SD_MMC.setPins(PIN_SD_CLK, PIN_SD_CMD, PIN_SD_D0);
   sdOk = SD_MMC.begin("/sdcard", true, false, SDMMC_FREQ_DEFAULT, 8);
+#endif
   if (!sdOk) lfsOk = LittleFS.begin(true);
   if (ready()) {
     mkdirs(META_DIR);
